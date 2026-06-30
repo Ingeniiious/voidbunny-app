@@ -1,0 +1,97 @@
+================================================================
+Coding-agent CLIs — host setup
+================================================================
+
+Voidbunny is just a real shell in a browser tab — it doesn't ship
+any AI by itself. To actually drive code with an agent from your
+phone, install one (or all) of the three popular CLIs below on the
+panel host. They run inside any panel terminal tab exactly like
+you'd run them in a normal SSH session.
+
+All three are Node packages, so they piggyback on the same Node
+runtime the panel itself already requires (Node 20+). No extra
+system deps.
+
+----------------------------------------------------------------
+1) Sanity-check Node + npm
+----------------------------------------------------------------
+
+node -v   # should be v20 or newer
+npm -v
+
+If npm's global prefix is owned by root (the default on most
+distros), `npm install -g` needs sudo. If you'd rather keep
+globals in your home dir without sudo, set a user prefix once:
+
+    mkdir -p ~/.npm-global
+    npm config set prefix ~/.npm-global
+    echo 'export PATH=$HOME/.npm-global/bin:$PATH' >> ~/.bashrc
+    source ~/.bashrc
+
+Then drop the `sudo` from the install commands below.
+
+----------------------------------------------------------------
+2) Claude Code (Anthropic)
+----------------------------------------------------------------
+
+    sudo npm install -g @anthropic-ai/claude-code
+
+First-run auth:
+
+    claude
+
+It'll open a browser-login flow (or print a URL you paste into
+any browser). Auth tokens are stored under ~/.claude/.
+
+----------------------------------------------------------------
+3) Codex CLI (OpenAI)
+----------------------------------------------------------------
+
+    sudo npm install -g @openai/codex
+
+First-run auth:
+
+    codex
+
+Sign in with your ChatGPT account when prompted, or set
+`OPENAI_API_KEY` in the environment if you'd rather use an API
+key. Config lives in ~/.codex/.
+
+----------------------------------------------------------------
+4) Gemini CLI (Google)
+----------------------------------------------------------------
+
+    sudo npm install -g @google/gemini-cli
+
+First-run auth:
+
+    gemini
+
+Sign in with a Google account (free tier is generous) or export
+`GEMINI_API_KEY` for an AI Studio key. Config lives in ~/.gemini/.
+
+----------------------------------------------------------------
+5) Sanity check
+----------------------------------------------------------------
+
+    which claude codex gemini
+    # should print three paths (under /usr/bin, /usr/local/bin, or
+    # ~/.npm-global/bin depending on your npm prefix)
+
+    claude --version
+    codex --version
+    gemini --version
+
+----------------------------------------------------------------
+Notes
+----------------------------------------------------------------
+
+- You only need one of these to get value out of the panel — pick
+  whichever you have credits / a subscription for. Installing all
+  three just lets you A/B them from different tabs.
+- Each CLI keeps its own credentials in ~/.<agent>/, so they don't
+  collide.
+- These run as the same Unix user as the panel (`void` in the
+  default systemd unit). Anything they can edit, the panel user
+  can edit — which is the whole point.
+- Updates: `sudo npm update -g @anthropic-ai/claude-code @openai/codex @google/gemini-cli`

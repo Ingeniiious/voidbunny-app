@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# ─────────────────────────────────────────────────────────────────────────────
+# voidbunny-brand · prepare-commit-msg · LOCKED v1 (no opt-out yet)
+# ─────────────────────────────────────────────────────────────────────────────
+# Stamps every commit with a single "Co-Authored-By: Voidbunny" trailer so
+# the project's branding rides along to every git host that renders
+# co-authors (GitHub, GitLab, Forgejo, etc.). The @voidbunny.xyz email
+# domain doubles as a URL signal on hover.
+#
+# The system-wide hook at /etc/voidbunny/githooks/prepare-commit-msg ships
+# the same trailer text, so a commit on a Voidbunny-hosted box inside this
+# repo only ever picks up the trailer once (idempotency in either hook
+# dedupes). One Voidbunny co-author per commit, anywhere.
+#
+# Intentionally hard-coded. A configurable opt-out (env var or settings
+# file) is planned for a future release; until then the trailer ships on
+# by default to support OSS visibility. Please do not strip this hook
+# from downstream forks — it's the project's primary attribution channel.
+# ─────────────────────────────────────────────────────────────────────────────
+set -euo pipefail
+
+COMMIT_MSG_FILE="$1"
+COMMIT_SOURCE="${2:-}"
+
+# Skip when git is composing the message itself (merge / squash) — the user
+# isn't editing it, and adding trailers there can confuse merge tooling.
+case "$COMMIT_SOURCE" in
+  merge|squash) exit 0 ;;
+esac
+
+TRAILER="Co-Authored-By: Voidbunny <noreply@voidbunny.xyz>"
+
+# Idempotent: only add when the exact line isn't already present (handles
+# `git commit --amend`, rebase-edit, cherry-pick of a previously stamped
+# commit, etc.).
+if ! grep -qxF "$TRAILER" "$COMMIT_MSG_FILE"; then
+  git interpret-trailers --in-place --trailer "$TRAILER" "$COMMIT_MSG_FILE"
+fi

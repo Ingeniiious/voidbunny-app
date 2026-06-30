@@ -1,0 +1,132 @@
+================================================================
+In-app Brave browser — host setup (run as root / with sudo)
+================================================================
+
+Run these on the Hetzner box ONCE to enable the "browser" tab type.
+Terminals work fine without them; only the browser feature needs this.
+
+(Scroll to the bottom for the optional "grow swap to 16 GiB" steps.)
+
+----------------------------------------------------------------
+1) Install Xvfb + x11vnc + curl
+----------------------------------------------------------------
+
+sudo apt update
+sudo apt install -y xvfb x11vnc curl
+
+----------------------------------------------------------------
+2) Add the Brave APT repo and install Brave
+----------------------------------------------------------------
+
+sudo curl -fsSLo /usr/share/keyrings/brave-browser-archive-keyring.gpg https://brave-browser-apt-release.s3.brave.com/brave-browser-archive-keyring.gpg
+
+echo "deb [signed-by=/usr/share/keyrings/brave-browser-archive-keyring.gpg] https://brave-browser-apt-release.s3.brave.com/ stable main" | sudo tee /etc/apt/sources.list.d/brave-browser-release.list
+
+sudo apt update
+sudo apt install -y brave-browser
+
+----------------------------------------------------------------
+3) Restart the panel so it picks up the new backend code
+----------------------------------------------------------------
+
+sudo systemctl restart panel
+
+----------------------------------------------------------------
+4) Sanity check
+----------------------------------------------------------------
+
+which Xvfb x11vnc brave-browser
+# should print three /usr/bin/... paths
+
+systemctl status panel --no-pager | head -20
+# should be active (running)
+
+----------------------------------------------------------------
+5) Try it
+----------------------------------------------------------------
+
+Open the panel in your browser. In the sidebar, click
+"New browser". A Brave window appears in a noVNC viewport.
+
+Each instance also exposes a Chrome DevTools Protocol port on
+loopback (starting at 9222). The POST /api/browser response
+returns it as `cdpUrl`. To drive the tab from Playwright MCP:
+
+  const browser = await chromium.connectOverCDP('http://127.0.0.1:9222')
+
+----------------------------------------------------------------
+Optional env tweaks (put in /opt/voidbunny/.env)
+----------------------------------------------------------------
+
+PANEL_BROWSER_MAX_INSTANCES=3        # concurrent cap (default 3)
+PANEL_BROWSER_BIN=/usr/bin/brave-browser   # override binary
+PANEL_BROWSER_GEOMETRY=1280x800x24    # WxHxdepth at startup
+
+After changing .env: sudo systemctl restart panel
+
+----------------------------------------------------------------
+Known limitations (v1)
+----------------------------------------------------------------
+
+- Browser instances die when you restart `panel`. They're children
+  of the panel process; tmux survives because it's a daemon, Brave
+  isn't. You'll lose open browser tabs on every panel restart.
+- No audio (VNC doesn't carry audio).
+- Display size is fixed at instance startup — can't resize live.
+- ~250 MB resident per instance, hence the 3-instance default cap.
+
+
+================================================================
+Grow swap from 8 GiB to 16 GiB (OPTIONAL)
+================================================================
+
+Current state: /swapfile is 8 GiB, persisted in /etc/fstab,
+vm.swappiness=10. This is already healthy. Only grow it if you
+plan to run lots of concurrent browser tabs + heavy builds at
+the same time. With 15 GiB RAM the box is unlikely to OOM as-is.
+
+Run these as root (one at a time so you can spot any error).
+The /etc/fstab line already exists — no need to touch it.
+
+----------------------------------------------------------------
+1) Sanity-check before changing anything
+----------------------------------------------------------------
+
+free -h
+swapon --show
+# Note "Used" — if swap-used > (free RAM), swapoff below will fail.
+
+----------------------------------------------------------------
+2) Disable the current swapfile, recreate at 16 GiB, re-enable
+----------------------------------------------------------------
+
+sudo swapoff /swapfile
+sudo rm /swapfile
+sudo fallocate -l 16G /swapfile
+sudo chmod 600 /swapfile
+sudo mkswap /swapfile
+sudo swapon /swapfile
+
+# Confirm the new size:
+swapon --show
+free -h
+
+----------------------------------------------------------------
+3) (Already persisted) — verify the fstab entry still applies
+----------------------------------------------------------------
+
+grep '/swapfile' /etc/fstab
+# Should print:  /swapfile none swap sw 0 0
+# If empty, add it:
+#   echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+
+----------------------------------------------------------------
+Notes
+----------------------------------------------------------------
+
+- swappiness=10 is already set in sysctl.d — no change needed.
+- If `swapoff` hangs or errors with "Cannot allocate memory",
+  stop heavyweight processes first (close unused panel terminals,
+  Brave tabs, dev servers) so the swap contents fit back in RAM.
+- Disk usage: the new swapfile takes 16 GiB on /. You have ~117 GiB
+  free, so plenty of headroom.

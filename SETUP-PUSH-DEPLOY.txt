@@ -1,0 +1,359 @@
+================================================================
+Push-to-deploy setup (Hetzner)  —  one-time setup
+================================================================
+
+Goal: after this is set up, deploying an update is just
+`git push prod main`. The server pulls the new code, rebuilds the
+frontend, and restarts the backend automatically. No more manual
+ssh + npm + systemctl dance.
+
+How it works:
+
+  you  --(git push)-->  bare repo (/srv/git/voidbunny.git)
+                                  |
+                                  v
+                          post-receive hook
+                                  |
+                                  v
+                  checks out files into Claude-Server/
+                                  |
+                                  v
+                       runs deploy/update.sh
+                       (npm ci + npm build)
+                                  |
+                                  v
+                  touches $HOME/.panel-redeploy-trigger
+                                  |
+                                  v
+                  systemd path unit fires (runs as root)
+                                  |
+                                  v
+                       systemctl restart panel
+
+----------------------------------------------------------------
+Why a "path unit" instead of plain sudo?
+----------------------------------------------------------------
+
+panel.service runs with `NoNewPrivileges=true` for hardening. That
+flag is inherited by every child process — including any terminal
+you spawn through the panel UI itself. Once NoNewPrivileges is set
+on a process, `sudo` is permanently disabled in that process tree
+(even with a NOPASSWD rule). That means a deploy hook running from
+a panel-spawned shell can never call `sudo systemctl restart panel`.
+
+The fix is the standard Linux pattern: a tiny systemd "path unit"
+that watches a trigger file. Anyone (including a NoNewPrivileges
+shell) can `touch` the trigger file. systemd PID 1 — which is NOT
+running with NoNewPrivileges — sees the change and runs the
+restart as root. Clean, secure, and works from any context.
+
+----------------------------------------------------------------
+A note on terminals: you need ONE sudo-capable shell
+----------------------------------------------------------------
+
+Step 1 below requires `sudo` (you're writing files into
+/etc/systemd/system/). You CANNOT run step 1 from a terminal
+spawned by the panel UI itself, because NoNewPrivileges blocks
+sudo there.
+
+You DO need either:
+  - a regular SSH session from your phone/laptop (Termius, OpenSSH,
+    PuTTY, anything that talks ssh:// directly to the server), or
+  - the Hetzner web console.
+
+All other steps (2-7) work from any shell, including a panel
+terminal.
+
+================================================================
+
+----------------------------------------------------------------
+1) SERVER (sudo-capable shell): install the systemd path unit
+----------------------------------------------------------------
+
+This is the one-time root setup. Three things: a service that
+runs the restart, a path unit that triggers the service when the
+trigger file is touched, and enabling the path unit.
+
+a) Create the service:
+
+sudo tee /etc/systemd/system/panel-redeploy.service >/dev/null <<'EOF'
+[Unit]
+Description=Restart panel.service when redeploy trigger fires
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/systemctl restart panel.service
+EOF
+
+b) Create the path unit that watches the trigger file:
+
+sudo tee /etc/systemd/system/panel-redeploy.path >/dev/null <<'EOF'
+[Unit]
+Description=Watch $HOME/.panel-redeploy-trigger for panel redeploy
+
+[Path]
+PathModified=$HOME/.panel-redeploy-trigger
+Unit=panel-redeploy.service
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+c) Create an initial (empty) trigger file so the path unit has
+   something to watch:
+
+touch $HOME/.panel-redeploy-trigger
+
+d) Reload systemd, enable & start the path unit:
+
+sudo systemctl daemon-reload
+sudo systemctl enable --now panel-redeploy.path
+
+e) Verify it's active:
+
+systemctl status panel-redeploy.path --no-pager
+
+You should see "Active: active (waiting)" — the unit is watching
+the trigger file for modifications.
+
+f) Test it. Touch the trigger file and watch panel restart:
+
+date +%s%N > $HOME/.panel-redeploy-trigger
+sleep 2
+systemctl status panel --no-pager | head -5
+
+The "Active: active (running) since ..." line should show a
+fresh timestamp (within the last few seconds). If it does, the
+path unit is working and you never need sudo for deploys again.
+
+----------------------------------------------------------------
+1a) SERVER: fix ownership if you ran the script with `sudo` before
+----------------------------------------------------------------
+
+Skip this if you never ran `sudo deploy/update.sh` (the script
+should always be run as your normal user).
+
+If you did, node_modules/ and dist/ are owned by root and the
+next deploy (running as void) will fail with permission errors.
+Fix:
+
+sudo chown -R void:void /opt/voidbunny/frontend/node_modules /opt/voidbunny/frontend/dist
+
+----------------------------------------------------------------
+1b) SERVER: (optional) clean up obsolete sudoers rule
+----------------------------------------------------------------
+
+Skip this if you never added a /etc/sudoers.d/panel-deploy file.
+
+Earlier versions of this guide created a NOPASSWD sudoers rule.
+It's harmless but no longer used — the path unit replaces it.
+You can remove it:
+
+sudo rm -f /etc/sudoers.d/panel-deploy
+
+----------------------------------------------------------------
+2) SERVER (any shell): test the deploy script manually
+----------------------------------------------------------------
+
+Do NOT prefix this with `sudo`. The script doesn't need root —
+it only touches the trigger file, and systemd handles the
+restart.
+
+/opt/voidbunny/deploy/update.sh
+
+Expected:
+  >>> [1/3] Building frontend
+  ...
+  >>> [2/3] Triggering backend restart
+  >>> [3/3] Waiting for panel to restart
+  Restart confirmed at: ...
+  ● panel.service - Panel — Server control panel ...
+  >>> Deploy complete.
+
+If you see "WARNING: panel did not restart within 10s", the path
+unit isn't working — go back to step 1 and re-run parts e and f.
+
+----------------------------------------------------------------
+3) SERVER: create the bare git repo (skip if already created)
+----------------------------------------------------------------
+
+This is the "remote" you push to. It lives next to your home
+directory, not inside Claude-Server.
+
+git init --bare /srv/git/voidbunny.git
+
+----------------------------------------------------------------
+4) SERVER: write the post-receive hook
+----------------------------------------------------------------
+
+This is the magic. When a push lands on the bare repo, this hook
+checks out the files into Claude-Server/ and runs update.sh.
+Only pushes to `main` trigger a deploy — other branches are
+ignored (you can push WIP branches without breaking prod).
+
+IMPORTANT: when you paste the block below, make sure the very
+first character is `c` (it spells `cat`). Some terminals eat the
+first character of a pasted block — if you accidentally run
+`at > ...` instead of `cat > ...`, the `at` job scheduler will
+say "Garbled time" and an EMPTY file will be created at the
+hook path. If that happens, just re-paste the whole block; the
+`>` redirect overwrites the empty file with the correct content.
+
+cat > /srv/git/voidbunny.git/hooks/post-receive <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+TARGET_BRANCH="main"
+WORK_TREE="/opt/voidbunny"
+GIT_DIR="/srv/git/voidbunny.git"
+
+while read -r oldrev newrev ref; do
+  branch="${ref#refs/heads/}"
+  if [ "$branch" = "$TARGET_BRANCH" ]; then
+    echo ">>> Deploying $newrev to $WORK_TREE"
+    git --work-tree="$WORK_TREE" --git-dir="$GIT_DIR" checkout -f "$branch"
+    "$WORK_TREE/deploy/update.sh"
+    echo ">>> Deploy of $branch complete."
+  else
+    echo ">>> Pushed $branch — only $TARGET_BRANCH triggers deploy. Skipping."
+  fi
+done
+EOF
+
+Verify the file was written correctly — you should see the full
+script (not an empty output):
+
+cat /srv/git/voidbunny.git/hooks/post-receive
+
+----------------------------------------------------------------
+5) SERVER: make the hook executable and verify
+----------------------------------------------------------------
+
+chmod +x /srv/git/voidbunny.git/hooks/post-receive
+ls -la /srv/git/voidbunny.git/hooks/post-receive
+
+Expected: shows -rwxr-xr-x (the `x` bits matter — that's what
+makes it executable).
+
+----------------------------------------------------------------
+6) SERVER: add the prod remote to your Claude-Server clone
+----------------------------------------------------------------
+
+Since you develop on the same server, the remote is a local path
+— no SSH needed. cd into your working tree first:
+
+cd /opt/voidbunny
+git remote add prod /srv/git/voidbunny.git
+git remote -v
+
+You should see both `origin` (GitHub) and `prod` (local bare
+repo). Same `main` branch, two destinations.
+
+If `git remote add` says "remote prod already exists", skip it —
+you already added it earlier.
+
+----------------------------------------------------------------
+7) SERVER: first deploy push (the real test)
+----------------------------------------------------------------
+
+Make sure all your changes are committed, then push:
+
+git push prod main
+
+You'll see the build output stream right in the terminal:
+
+    remote: >>> Deploying <sha> to /opt/voidbunny
+    remote: >>> [1/3] Building frontend
+    remote: ...npm + vite output...
+    remote: >>> [2/3] Triggering backend restart
+    remote: >>> [3/3] Waiting for panel to restart
+    remote: Restart confirmed at: ...
+    remote: >>> Deploy complete.
+
+Open the panel on your phone and confirm the new version is live.
+
+================================================================
+Daily workflow from here on
+================================================================
+
+Normal change (all from /opt/voidbunny on the server):
+
+    # make edits
+    git add -A
+    git commit -m "your change"
+    git push origin main    # to GitHub (your canonical history)
+    git push prod main      # to local bare repo (triggers deploy)
+
+You can also push both at once if you set up an alias.
+Skipping `git push origin main` is fine for a quick deploy, but
+GitHub will drift behind — push to origin too when you can.
+
+Push a non-main branch — nothing deploys (safe for WIP):
+
+    git push prod feature/foo   # hook says "skipping deploy"
+
+IMPORTANT: since you develop and deploy in the same working tree,
+the post-receive hook runs `git checkout -f` which will overwrite
+any uncommitted changes. Always commit before you push to prod.
+
+================================================================
+Rollback
+================================================================
+
+If a deploy breaks something, roll back by force-pushing the
+previous commit as main on prod:
+
+    git push prod HEAD~1:main --force
+
+This re-triggers the hook with the older SHA, which rebuilds and
+restarts on the old code. After confirming it works, fix the bug
+in a new commit and push forward normally.
+
+================================================================
+Troubleshooting
+================================================================
+
+"WARNING: panel did not restart within 10s"
+    The systemd path unit isn't watching, isn't enabled, or its
+    service failed. Check in this order:
+      systemctl status panel-redeploy.path
+      systemctl status panel-redeploy.service
+      journalctl -u panel-redeploy.service -n 20
+
+Hook runs but `npm: command not found`
+    Edit /opt/voidbunny/deploy/update.sh and adjust
+    the PATH= export line at the top to include wherever npm
+    actually lives (`which npm` tells you).
+
+"sudo: The 'no new privileges' flag is set..."
+    You ran step 1 (or some manual sudo command) from a panel-
+    spawned terminal. NoNewPrivileges blocks sudo there. Use a
+    regular SSH session or the Hetzner web console for any sudo
+    work. Day-to-day deploys (step 7 onward) don't need sudo.
+
+Deploy push hangs / asks for a password
+    Only relevant if you pushed FROM a different machine. Make
+    sure ssh-copy-id has set up key-based auth to the server.
+
+Server-side debugging
+    journalctl -u panel -f                # tail panel logs live
+    journalctl -u panel-redeploy.service  # see restart events
+    systemctl status panel                # check it's running
+    ls -la /opt/voidbunny/frontend/dist  # build output
+
+================================================================
+What this replaces
+================================================================
+
+Before:
+    cd Claude-Server
+    git pull
+    cd frontend && npm run build
+    sudo systemctl restart panel    # types password
+
+After:
+    git commit -am "..."
+    git push prod main
+
+That's the whole point.

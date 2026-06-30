@@ -1,0 +1,25 @@
+{
+  "name": "panel-backend",
+  "version": "0.5.0",
+  "private": true,
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "start": "node --env-file=../.env index.js",
+    "dev": "node --env-file=../.env --watch index.js",
+    "postinstall": "node ../scripts/install-githooks.cjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "better-sqlite3": "^12.10.0",
+    "express": "^4.21.1",
+    "express-rate-limit": "^8.5.2",
+    "jsonwebtoken": "^9.0.2",
+    "node-pty": "^1.0.0",
+    "web-push": "^3.6.7",
+    "ws": "^8.18.0"
+  }
+}

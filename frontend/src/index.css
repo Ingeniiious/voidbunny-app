@@ -1,0 +1,243 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Aldone — display/UI typeface (SIL OFL) for all non-terminal text.
+   Only includes uppercase, lowercase, and numbers; system fallback handles
+   the rest (punctuation, symbols, accented chars). */
+@font-face {
+  font-family: 'Aldone';
+  src: url('/fonts/Aldone-Light.otf') format('opentype');
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Aldone';
+  src: url('/fonts/Aldone-Regular.otf') format('opentype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Aldone';
+  src: url('/fonts/Aldone-Medium.otf') format('opentype');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Aldone';
+  src: url('/fonts/Aldone-SemiBold.otf') format('opentype');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Aldone';
+  src: url('/fonts/Aldone-Bold.otf') format('opentype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* Fliege Mono — SIL OFL monospace with ink traps + personality. Used for
+   the terminal and any UI tagged font-mono. Only loading 3 weights since
+   that's all the UI references. */
+@font-face {
+  font-family: 'Fliege Mono';
+  src: url('/fonts/FliegeMono-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Fliege Mono';
+  src: url('/fonts/FliegeMono-Medium.woff2') format('woff2');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Fliege Mono';
+  src: url('/fonts/FliegeMono-Bold.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+  :root {
+    /* Light theme — paper white */
+    --panel-bg: 255 255 255;
+    --panel-surface: 245 245 247;
+    --panel-border: 224 224 230;
+    --panel-text: 10 10 13;
+    --panel-muted: 106 106 115;
+    --panel-accent: 10 10 13;
+    --panel-danger: 197 48 48;
+    /* Amber for the "needs you" tab state. Warm enough to read as a turn
+       indicator without competing with --panel-danger (errors). */
+    --panel-attention: 202 138 4;
+    /* Per-CLI working-state colors. Same values in both themes — they read as
+       brand cues on top of either background. */
+    --cli-claude: 217 119 87;   /* Anthropic-ish orange (#d97757) */
+    --cli-gemini: 168 85 247;   /* Google AI purple (#a855f7) */
+    --cli-codex: 16 163 127;    /* OpenAI green (#10a37f) */
+    --cli-cursor: 24 24 27;     /* Cursor: near-black brand mark (#18181b) */
+    --cli-grok: 24 24 27;       /* xAI Grok: monochrome black (#18181b) */
+  }
+  .dark {
+    /* Dark theme — deep black */
+    --panel-bg: 10 10 13;
+    --panel-surface: 20 20 24;
+    --panel-border: 42 42 48;
+    --panel-text: 245 245 247;
+    --panel-muted: 138 138 147;
+    --panel-accent: 245 245 247;
+    --panel-danger: 248 113 113;
+    /* Slightly brighter amber on dark — keeps the dot/text legible against
+       the deep surface without straying into hazard-orange. */
+    --panel-attention: 250 204 21;
+    --cli-claude: 230 138 109;
+    --cli-gemini: 192 132 252;
+    --cli-codex: 52 199 165;
+    --cli-cursor: 228 228 231;  /* Cursor: near-white in dark mode (#e4e4e7) */
+    --cli-grok: 228 228 231;    /* xAI Grok: near-white in dark mode (#e4e4e7) */
+  }
+  html, body, #root {
+    height: 100%;
+  }
+  body {
+    overscroll-behavior: none;
+  }
+}
+
+@layer utilities {
+  .scrollbar-thin::-webkit-scrollbar { width: 6px; height: 6px; }
+  .scrollbar-thin::-webkit-scrollbar-thumb { background: rgb(var(--panel-border)); border-radius: 3px; }
+  .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+  /* Fully hidden scrollbar — for strips like the terminal tab row where the
+     tabs themselves communicate position and a visible track looks noisy. */
+  .scrollbar-none { scrollbar-width: none; -ms-overflow-style: none; }
+  .scrollbar-none::-webkit-scrollbar { width: 0; height: 0; display: none; }
+  /* Momentum scrolling on iOS Safari for any scroller we apply it to. */
+  .scroll-touch { -webkit-overflow-scrolling: touch; }
+}
+
+/* iOS Safari zooms in on focused inputs whose font-size is < 16px.
+   Force 16px on mobile widths so tapping any input doesn't trigger a zoom.
+   Desktop keeps the smaller utility-class sizes via the sm:-breakpoint reset. */
+@media (max-width: 639px) {
+  input, textarea, select {
+    font-size: 16px;
+  }
+}
+
+/* Tab title shimmer — used on a session tab whose Claude Code run finished
+   while the user was looking elsewhere. A slow horizontal highlight sweep
+   over the label using background-clip:text. Designed to be noticeable
+   without being distracting — the highlight passes ~once every 2.4s. */
+@keyframes panel-tab-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+.tab-shimmer {
+  background: linear-gradient(
+    90deg,
+    rgb(var(--panel-muted)) 0%,
+    rgb(var(--panel-muted)) 35%,
+    rgb(var(--panel-text)) 50%,
+    rgb(var(--panel-muted)) 65%,
+    rgb(var(--panel-muted)) 100%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  animation: panel-tab-shimmer 2.4s ease-in-out infinite;
+}
+/* Same shimmer rhythm + keyframes as .tab-shimmer, but rendered as a
+   sweeping highlight overlay so it can sit on top of an icon button (the
+   text-clip trick used by .tab-shimmer requires actual glyphs). Apply to
+   any element that's `position: relative` and rounded — the ::after picks
+   up the parent's border-radius so it doesn't bleed past corners. */
+.btn-shimmer::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(
+    90deg,
+    rgb(var(--panel-text) / 0) 0%,
+    rgb(var(--panel-text) / 0) 35%,
+    rgb(var(--panel-text) / 0.32) 50%,
+    rgb(var(--panel-text) / 0) 65%,
+    rgb(var(--panel-text) / 0) 100%
+  );
+  background-size: 200% 100%;
+  animation: panel-tab-shimmer 2.4s ease-in-out infinite;
+}
+
+/* Pulse dot used in the "working" half of the tab crossfade. Slow enough not
+   to read as urgent — Claude Code is fine, it's just busy. */
+@keyframes panel-tab-pulse {
+  0%, 100% { opacity: 0.45; }
+  50%      { opacity: 1; }
+}
+.tab-pulse {
+  animation: panel-tab-pulse 1.4s ease-in-out infinite;
+}
+/* Voice-processing indicator: three bars rising/falling in place, phase-
+   offset 150 ms apart so the eye reads a left→right wave. scaleY only (no
+   height animation) so the row never reflows. Used by MicButton's
+   processing state in place of a generic spinner — keeps the audio
+   metaphor and fits inside a fixed-width button. */
+@keyframes voice-wave {
+  0%, 100% { transform: scaleY(0.32); }
+  50%      { transform: scaleY(1);    }
+}
+.voice-wave-bar {
+  display: inline-block;
+  transform-origin: center;
+  animation: voice-wave 900ms ease-in-out infinite;
+}
+.voice-wave-bar:nth-child(1) { animation-delay: -150ms; }
+.voice-wave-bar:nth-child(2) { animation-delay: 0ms;    }
+.voice-wave-bar:nth-child(3) { animation-delay: 150ms;  }
+
+/* Recording-state liveness for MicButton. Replaces the old `animate-pulse`
+   on the button itself (which dipped the button's overall opacity to ~50%
+   and exposed the parent surface through the side-padding when the button
+   width was locked). This animates a soft red halo *outside* the button
+   instead — the fill stays fully opaque so the width can be locked. */
+@keyframes mic-rec-glow {
+  0%, 100% { box-shadow: 0 0 0 0   rgb(var(--panel-danger) / 0.55); }
+  50%      { box-shadow: 0 0 0 6px rgb(var(--panel-danger) / 0);    }
+}
+.mic-rec-glow {
+  animation: mic-rec-glow 1.4s ease-out infinite;
+}
+
+/* Respect users who've asked for less motion — drop the sweep, leave the
+   text in the accent color so the "needs attention" signal still reads. */
+@media (prefers-reduced-motion: reduce) {
+  .tab-shimmer {
+    animation: none;
+    background: none;
+    -webkit-text-fill-color: rgb(var(--panel-text));
+    color: rgb(var(--panel-text));
+  }
+  .tab-pulse { animation: none; opacity: 1; }
+  .btn-shimmer::after { animation: none; opacity: 0; }
+  .voice-wave-bar {
+    animation: none;
+    transform: scaleY(0.7);
+  }
+  .mic-rec-glow { animation: none; }
+}

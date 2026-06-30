@@ -1,0 +1,17 @@
+# Append this block to /etc/caddy/Caddyfile after DNS points at this box.
+# Replace SITE_DOMAIN with voidbunny.xyz and WWW_DOMAIN with www.voidbunny.xyz.
+
+SITE_DOMAIN, WWW_DOMAIN {
+    encode zstd gzip
+
+    reverse_proxy 127.0.0.1:3000
+
+    header {
+        Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        Permissions-Policy "interest-cohort=()"
+        -Server
+    }
+}

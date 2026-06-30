@@ -1,0 +1,31 @@
+# Append this block to /etc/caddy/Caddyfile.
+# Replace YOUR_SUBDOMAIN with the panel hostname (app.voidbunny.xyz).
+
+YOUR_SUBDOMAIN {
+    encode zstd gzip
+
+    # WebSocket upgrade for /terminal — Caddy auto-detects, no extra config.
+    # Long read+write timeout so idle terminal sessions don't get killed.
+    reverse_proxy 127.0.0.1:4000 {
+        transport http {
+            read_timeout 24h
+            write_timeout 24h
+        }
+    }
+
+    header {
+        Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        # Explicit allow-list for hardware features the panel uses.
+        # `microphone=(self)` — voice dictation (MicButton + Whisper).
+        # `clipboard-read=(self)` / `clipboard-write=(self)` — Paste chip.
+        # `interest-cohort=()` — disable FLoC for everyone.
+        # Defaults to `self` for unlisted features, but being explicit stops
+        # strict Permissions-Policy implementations (esp. iOS WebKit) from
+        # re-prompting on every PWA launch when the header is present at all.
+        Permissions-Policy "microphone=(self), camera=(self), clipboard-read=(self), clipboard-write=(self), interest-cohort=()"
+        -Server
+    }
+}

@@ -1,0 +1,32 @@
+[Unit]
+Description=Voidbunny landing site (Next.js)
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=void
+Group=void
+WorkingDirectory=/opt/voidbunny/site
+Environment=NODE_ENV=production
+Environment=PORT=3000
+ExecStart=/usr/bin/npm run start -- -p 3000
+Restart=on-failure
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=voidbunny-site
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/opt/voidbunny/site/.next
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

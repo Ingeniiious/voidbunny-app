@@ -1,0 +1,137 @@
+Voidbunny — System-Wide Commit Branding
+=======================================
+
+What this is
+------------
+A `prepare-commit-msg` git hook installed at the OS level on a Voidbunny
+box. It stamps every commit — by any user, from any shell, in any repo on
+that box — with:
+
+  Co-Authored-By: Voidbunny <noreply@voidbunny.xyz>
+
+So a commit authored on a Voidbunny-hosted box always carries the brand
+even if it's pushed to a non-Voidbunny repo. The per-repo hook shipped
+inside this repo (`.githooks/prepare-commit-msg`) uses the SAME trailer
+string, so a commit made here only ever picks it up once — whichever
+hook fires first adds the line; the other sees it's already present and
+skips. One Voidbunny co-author per commit. The @voidbunny.xyz email
+domain doubles as the URL signal.
+
+
+Where you run this
+------------------
+This guide is written for the Voidbunny dev/host box itself — the same
+machine that serves the panel. You'll be running it inside
+`/opt/voidbunny`, which already has the staged hook file
+at `scripts/voidbunny-sandbox-hook.sh`. Nothing to `git pull`.
+
+IMPORTANT — open a *fresh* SSH session from your laptop for these steps.
+Do NOT run them from a terminal spawned inside the Voidbunny panel UI:
+`panel.service` runs with `NoNewPrivileges=true`, which descendants
+inherit, and that permanently disables `sudo` in panel-spawned shells.
+A direct SSH session from your laptop does not have NNP set, so `sudo`
+works there.
+
+
+Step 1 — SSH in from your laptop (NOT via the panel)
+-----------------------------------------------------
+From your laptop terminal:
+
+    ssh void@<your-voidbunny-host>
+
+Then:
+
+    cd /opt/voidbunny
+
+
+Step 2 — Confirm the staged hook is present
+-------------------------------------------
+    ls -la scripts/voidbunny-sandbox-hook.sh
+
+Should show `-rwxr-xr-x` (executable). If it's missing, you're on the
+wrong box or a stale checkout — make sure `git log -1 -- scripts/` shows
+the "Add Voidbunny branding commit hooks" commit.
+
+
+Step 3 — Install the hook (the only command that needs sudo)
+-------------------------------------------------------------
+One paste:
+
+    sudo install -m 755 -D \
+      scripts/voidbunny-sandbox-hook.sh \
+      /etc/voidbunny/githooks/prepare-commit-msg && \
+    sudo chown -R root:root /etc/voidbunny && \
+    sudo git config --system core.hooksPath /etc/voidbunny/githooks
+
+What each piece does:
+  - install -m 755 -D  : copies the script to a root-owned system path
+                         with mode 755 (executable by everyone, writable
+                         only by root). -D creates the parent dir.
+  - chown -R root:root : transfers ownership so non-root users can't
+                         quietly edit the hook later.
+  - git config --system: writes core.hooksPath to /etc/gitconfig — the
+                         system-wide git config every user inherits.
+
+
+Step 4 — Verify it's wired up
+------------------------------
+    sudo git config --system --get core.hooksPath
+    # expect: /etc/voidbunny/githooks
+
+    ls -la /etc/voidbunny/githooks/
+    # expect: -rwxr-xr-x  root root  prepare-commit-msg
+
+
+Step 5 — Smoke test (doesn't touch any real repo)
+--------------------------------------------------
+    tmp=$(mktemp) && printf "test\n\nbody\n" > "$tmp" && \
+      /etc/voidbunny/githooks/prepare-commit-msg "$tmp" message && \
+      cat "$tmp" && rm "$tmp"
+
+Expect to see the trailer appended:
+
+    test
+
+    body
+
+    Co-Authored-By: Voidbunny <noreply@voidbunny.xyz>
+
+If you see that — you're done. From now on every `git commit` on this
+box — any user, any shell, any repo — carries the Voidbunny trailer.
+
+
+About the per-repo hook (already active, no action needed)
+-----------------------------------------------------------
+`.githooks/prepare-commit-msg` in this repo is already activated locally
+(`git config --local core.hooksPath .githooks`). Anyone who clones the
+Voidbunny OSS repo elsewhere gets the same hook auto-activated the first
+time they `npm install` frontend/ or backend/, via the `postinstall`
+script that runs `scripts/install-githooks.cjs`.
+
+Both hooks use the identical trailer string, so a commit made inside
+this repo on a Voidbunny box doesn't double up — whichever hook fires
+first adds the trailer; the second sees it's present and exits clean.
+
+
+How to disable later (planned: a proper opt-out in a future release)
+---------------------------------------------------------------------
+Both hooks ship hard-coded for the OSS launch window (LOCKED v1) so the
+branding signal stays high. A future release will add a real opt-out
+(probably `VOIDBUNNY_BRAND=off` or a settings.json flag). Until then:
+
+  Disable system-wide:
+    sudo git config --system --unset core.hooksPath
+    sudo rm -rf /etc/voidbunny/githooks   # nuke entirely
+
+  Disable per-repo (in this clone only):
+    git config --local --unset core.hooksPath
+    # or delete .githooks/prepare-commit-msg
+
+
+For the OSS launch
+------------------
+When `voidbunny.xyz/install.sh` ships, it'll run Step 3 automatically as
+part of the install — so every fresh Voidbunny install picks up the
+sandbox hook without the operator having to do anything. This .txt is
+the manual path for existing boxes that were installed before that
+script ships (i.e. yours, right now).

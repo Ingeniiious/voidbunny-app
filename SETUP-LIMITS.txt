@@ -1,0 +1,131 @@
+Voidbunny — Tune Panel Resource Limits
+======================================
+
+What this is
+------------
+A one-time setup script that detects your host's CPU/RAM/architecture and
+writes a systemd drop-in at `/etc/systemd/system/panel.service.d/limits.conf`
+capping `panel.service` (and every tmux/claude/codex/gemini child it
+spawns) so a runaway agent or fork-bomb can't pin the whole box.
+
+Without this, `panel.service` runs with no caps at all — `MemoryMax=infinity`,
+`TasksMax=18690`, etc. The script reads your host specs and applies a
+sensible profile (e.g. on a typical 8-core / 16 GB VPS: CPUQuota=400%,
+MemoryMax≈half-of-RAM, TasksMax=512).
+
+Idempotent — safe to re-run after migrating hardware or resizing the VPS.
+
+
+Where you run this
+------------------
+On the Voidbunny dev/host box itself, from a **fresh laptop SSH session**.
+Do NOT run from a terminal spawned inside the Voidbunny panel UI:
+panel.service runs with NoNewPrivileges=true, which descendants inherit
+and permanently disables `sudo` in panel-spawned shells. A direct SSH
+session from your laptop does not have NNP set, so `sudo` works there.
+
+Heads up: Step 3 ends with `systemctl restart panel`, which kills every
+process in panel.service's cgroup — including any Claude Code session
+running through a panel-spawned terminal. Expect that session to drop
+and reconnect. Sessions started from external SSH (this one) are
+unaffected.
+
+
+Step 1 — SSH in from your laptop (NOT via the panel)
+-----------------------------------------------------
+From your laptop terminal:
+
+    ssh void@<your-voidbunny-host>
+
+Then:
+
+    cd /opt/voidbunny
+
+
+Step 2 (optional) — Preview what would be written
+--------------------------------------------------
+Dry-run shows the detected specs and the drop-in it would create — no
+sudo needed, doesn't touch anything:
+
+    deploy/tune-limits.sh --dry-run
+
+Verified output on the current host (8 cores, 15 GiB RAM):
+
+    Detected:
+      arch       = x86_64
+      cores      = 8
+      memory     = 15613 MB
+      virt       = kvm
+      profile    = x86_64-server
+
+    Applying:
+      CPUQuota=400%      # panel can use up to 4 of 8 cores, OS keeps the rest
+      CPUWeight=50       # panel yields to other services under load
+      MemoryMax=7806M    # ~half RAM, hard cap (OOM-killer above this)
+      MemoryHigh=5854M   # ~75% of MemoryMax, soft throttle below the hard cap
+      TasksMax=512       # max processes (currently 18690 — fork-bomb risk)
+
+If those values look right, continue to Step 3.
+
+
+Step 3 — Apply the limits and restart panel
+--------------------------------------------
+Two commands:
+
+    sudo /opt/voidbunny/deploy/tune-limits.sh
+    sudo systemctl restart panel
+
+The script auto-runs `daemon-reload` at the end, so you only need the
+restart line manually. (Don't worry about `daemon-reload` separately —
+it's already done.)
+
+
+Step 4 — Verify the caps are live
+----------------------------------
+    systemctl show panel -p CPUQuota,MemoryMax,MemoryHigh,TasksMax,CPUWeight
+
+Expect to see the values from your dry-run, NOT `infinity` / `18690`.
+
+You can also confirm the drop-in file exists and looks sane:
+
+    cat /etc/systemd/system/panel.service.d/limits.conf
+
+
+Overriding the defaults
+-----------------------
+If the auto-detected values aren't right for your workload, set env vars
+before running the script. The full list lives in `deploy/tune-limits.sh`
+lines 25–32. Common ones:
+
+    # Give panel more RAM than half the host
+    sudo PANEL_MEMORY_MAX=10G PANEL_MEMORY_HIGH=8G \
+      /opt/voidbunny/deploy/tune-limits.sh
+
+    # Tighter CPU cap
+    sudo PANEL_CPU_QUOTA=200% \
+      /opt/voidbunny/deploy/tune-limits.sh
+
+    # Force a specific profile (e.g. testing the SBC policy on x86)
+    sudo PANEL_PROFILE=aarch64-sbc \
+      /opt/voidbunny/deploy/tune-limits.sh
+
+After re-running, always: `sudo systemctl restart panel`.
+
+
+When to re-run
+--------------
+- After resizing the VPS (more/less CPU or RAM)
+- After migrating to a different host
+- After editing the script itself
+
+Otherwise, set it and forget it.
+
+
+For the OSS launch
+------------------
+When `voidbunny.xyz/install.sh` ships (currently on the pre-launch
+checklist), it'll call `deploy/tune-limits.sh` automatically as part of
+the install flow — so every fresh Voidbunny install gets the right caps
+from day one. This .txt is the manual path for existing boxes installed
+before that script ships (i.e. yours, right now), and for anyone who'd
+rather understand what's being set than pipe curl to bash.

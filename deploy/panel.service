@@ -1,0 +1,33 @@
+[Unit]
+Description=Panel — Server control panel (Node/Express + node-pty)
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=void
+Group=void
+WorkingDirectory=/opt/voidbunny/backend
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/node --env-file=/opt/voidbunny/.env /opt/voidbunny/backend/index.js
+Restart=on-failure
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=panel
+
+# Hardening — PTY needs to spawn shells as void so we can't lock down too much,
+# but block the obvious foot-guns.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/void
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

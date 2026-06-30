@@ -1,0 +1,113 @@
+================================================================
+Production hardening — host setup (run as root / with sudo)
+================================================================
+
+The panel itself ships hardened defaults (bcrypt password support,
+single-use WS tickets, rate-limited /auth, fail-closed env vars,
+PrivateTmp + ProtectSystem in panel.service). Two things still
+need to be done on the host that the panel can't do for itself:
+
+  1) Add the response-header block to your Caddyfile.
+  2) Bcrypt-hash your PANEL_PASSWORD (one-time).
+
+Run each section below as root from anywhere on the box.
+
+----------------------------------------------------------------
+1) Caddy: add the hardened header block
+----------------------------------------------------------------
+
+Open the Caddyfile and find your panel block (in this deploy it's
+`app.voidbunny.xyz { ... }`). Replace the existing `header { ... }`
+inside it with this exact block:
+
+    header {
+        Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        Permissions-Policy "interest-cohort=()"
+        -Server
+    }
+
+Or as a one-liner sed migration (only run once — diff the file first
+if you're unsure):
+
+    sudo sed -i \
+      -e 's|Strict-Transport-Security "max-age=63072000; includeSubDomains"|Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"|' \
+      -e '/Strict-Transport-Security/a\        X-Frame-Options "DENY"' \
+      -e '/Referrer-Policy/a\        Permissions-Policy "interest-cohort=()"' \
+      /etc/caddy/Caddyfile
+
+Validate + reload:
+
+    sudo caddy validate --config /etc/caddy/Caddyfile
+    sudo systemctl reload caddy
+
+If `caddy validate` complains, undo the sed change with:
+
+    sudo cp /etc/caddy/Caddyfile.bak /etc/caddy/Caddyfile   # only if you made a backup
+    # or edit by hand using the block at the top of this section.
+
+----------------------------------------------------------------
+2) Bcrypt-hash PANEL_PASSWORD (one-time)
+----------------------------------------------------------------
+
+The panel already supports bcrypt — backend/auth.js detects the
+`$2a$/$2b$/$2y$` prefix and switches to constant-time compare.
+Plain-text values still work but should not be used on the public
+internet. Generate a hash from your current password:
+
+    node -e "console.log(require('bcryptjs').hashSync(process.argv[1], 12))" 'YOUR_PASSWORD_HERE'
+
+Replace the `PANEL_PASSWORD=` value in /opt/voidbunny/.env
+with the resulting `$2a$12$...` string (no quotes). Then restart:
+
+    sudo systemctl restart panel
+
+Log in with the same plain-text password as before — bcrypt verifies
+it against the hash. If the login screen rejects you, check
+`journalctl -u panel --since '5 min ago'` for the audit line.
+
+----------------------------------------------------------------
+3) Optional host-level hardening (recommended, not required)
+----------------------------------------------------------------
+
+These belong on any internet-exposed VPS, not specific to this
+panel — but worth listing.
+
+  # SSH: key-only, no password auth
+  sudo sed -i 's|^#*PasswordAuthentication.*|PasswordAuthentication no|' /etc/ssh/sshd_config
+  sudo systemctl restart ssh
+
+  # Firewall: allow only 22/80/443; the panel binds 127.0.0.1:4000
+  sudo ufw default deny incoming
+  sudo ufw default allow outgoing
+  sudo ufw allow 22/tcp
+  sudo ufw allow 80/tcp
+  sudo ufw allow 443/tcp
+  sudo ufw enable
+
+  # Auto-install Ubuntu security patches
+  sudo apt install -y unattended-upgrades
+  sudo dpkg-reconfigure -plow unattended-upgrades
+
+  # Fail2ban: rate-limit brute force on SSH (panel's /auth has its own
+  # express-rate-limit, so fail2ban is mainly for sshd here)
+  sudo apt install -y fail2ban
+  sudo systemctl enable --now fail2ban
+
+----------------------------------------------------------------
+4) Sanity checks
+----------------------------------------------------------------
+
+  # New headers visible?
+  curl -sI https://app.voidbunny.xyz | grep -Ei "strict-transport|x-frame|permissions-policy"
+
+  # Login audit line writes to journalctl?
+  sudo journalctl -u panel -f
+  # ...then log in via the web UI — expect "[auth] login ok ip=..."
+
+  # WS upgrade is using ticket, not token?
+  sudo journalctl -u caddy -f
+  # ...then open a terminal tab — expect "/terminal?ticket=..." in the URL,
+  # never "/terminal?token=eyJ..."

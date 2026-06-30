@@ -1,0 +1,310 @@
+@import "tailwindcss";
+
+/* Switch the `dark:` variant from the OS media query to a `.dark`
+ * class on the html element, so next-themes drives the theme. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Brand display sans — Aldone — self-hosted from /fonts. Same files the
+ * panel ships, so the marketing site and the app share a wordmark feel. */
+@font-face {
+  font-family: "Aldone";
+  src: url("/fonts/Aldone-Light.otf") format("opentype");
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Aldone";
+  src: url("/fonts/Aldone-Regular.otf") format("opentype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Aldone";
+  src: url("/fonts/Aldone-Medium.otf") format("opentype");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Aldone";
+  src: url("/fonts/Aldone-SemiBold.otf") format("opentype");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Aldone";
+  src: url("/fonts/Aldone-Bold.otf") format("opentype");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* Brand mono — Fliege Mono — for code, eyebrows, install command. */
+@font-face {
+  font-family: "Fliege Mono";
+  src: url("/fonts/FliegeMono-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Fliege Mono";
+  src: url("/fonts/FliegeMono-Medium.woff2") format("woff2");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Fliege Mono";
+  src: url("/fonts/FliegeMono-Bold.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  --background: #ffffff;
+  --foreground: #0a0a0a;
+  --muted: #f5f5f5;
+  --muted-foreground: #737373;
+  --border: #e5e5e5;
+  --brand: #c2410c;
+  --brand-soft: #ea580c;
+  --ring: var(--brand);
+  --card: #fafafa;
+  --card-foreground: #0a0a0a;
+  --font-sans: "Aldone", system-ui, -apple-system, sans-serif;
+  --font-mono: "Fliege Mono", ui-monospace, monospace;
+
+  /* shadcn semantic tokens — wired to the brand palette so installed
+   * components inherit Voidbunny's burnt-orange + neutral system. */
+  --primary: var(--brand);
+  --primary-foreground: #ffffff;
+  --secondary: #f5f5f5;
+  --secondary-foreground: #0a0a0a;
+  --accent: #f5f5f5;
+  --accent-foreground: #0a0a0a;
+  --destructive: #dc2626;
+  --destructive-foreground: #ffffff;
+  --input: #e5e5e5;
+  --popover: #ffffff;
+  --popover-foreground: #0a0a0a;
+  --radius: 0.5rem;
+
+  --sidebar: #fafafa;
+  --sidebar-foreground: #404040;
+  --sidebar-primary: var(--brand);
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #f5f5f5;
+  --sidebar-accent-foreground: #0a0a0a;
+  --sidebar-border: #e5e5e5;
+  --sidebar-ring: var(--brand);
+}
+
+.dark {
+  --background: #0a0a0a;
+  --foreground: #fafafa;
+  --muted: #171717;
+  --muted-foreground: #a3a3a3;
+  --border: #262626;
+  --brand: #ea580c;
+  --brand-soft: #f97316;
+  --ring: var(--brand);
+  --card: #171717;
+  --card-foreground: #fafafa;
+
+  --primary: var(--brand);
+  --primary-foreground: #ffffff;
+  --secondary: #262626;
+  --secondary-foreground: #fafafa;
+  --accent: #262626;
+  --accent-foreground: #fafafa;
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+  --input: #262626;
+  --popover: #171717;
+  --popover-foreground: #fafafa;
+
+  --sidebar: #0f0f0f;
+  --sidebar-foreground: #a3a3a3;
+  --sidebar-primary: var(--brand);
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #1f1f1f;
+  --sidebar-accent-foreground: #fafafa;
+  --sidebar-border: #262626;
+  --sidebar-ring: var(--brand);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-ring: var(--ring);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-brand: var(--brand);
+  --color-brand-soft: var(--brand-soft);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-input: var(--input);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+  --color-neutral-50: #fafafa;
+  --color-neutral-100: #f5f5f5;
+  --color-neutral-200: #e5e5e5;
+  --color-neutral-300: #d4d4d4;
+  --color-neutral-400: #a3a3a3;
+  --color-neutral-500: #737373;
+  --color-neutral-600: #525252;
+  --color-neutral-700: #404040;
+  --color-neutral-800: #262626;
+  --color-neutral-900: #171717;
+  --color-neutral-950: #0a0a0a;
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+}
+
+html {
+  color-scheme: light;
+  /* Native fallback when SmoothScroll is disabled or reduced motion is on. */
+  scroll-behavior: smooth;
+}
+
+html.dark {
+  color-scheme: dark;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.skip-to-content {
+  position: absolute;
+  left: -9999px;
+  top: 1rem;
+  z-index: 9999;
+  padding: 0.75rem 1rem;
+  background: var(--background);
+  border: 2px solid var(--ring);
+  border-radius: 0.375rem;
+  font-weight: 600;
+  text-decoration: none;
+  color: var(--foreground);
+}
+
+.skip-to-content:focus {
+  left: 1rem;
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.focus-ring:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+body.nav-open [data-section-corner] {
+  opacity: 0;
+}
+
+/* Entrance animations. Authors stagger via the --enter-delay custom property.
+ * Use `both` fill-mode so the from-state applies during the delay AND the
+ * to-state applies after the animation completes — content stays visible even
+ * if animation playback is interrupted. Reduced-motion (handled below) forces
+ * content visible immediately. */
+/* Slide-up only — no opacity fade. This way content is always rendered and
+ * visible even if the animation never runs (PWA install on a slow phone,
+ * headless captures, JS-disabled previews). The slight Y offset is the only
+ * thing animated, so the visual cost of a skipped animation is zero. */
+@keyframes enter-up {
+  from {
+    transform: translate3d(0, 12px, 0);
+  }
+  to {
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes enter-fade {
+  from {
+    opacity: 0.4;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.enter {
+  animation: enter-up 700ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: var(--enter-delay, 0ms);
+}
+
+.enter-fade {
+  animation: enter-fade 900ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: var(--enter-delay, 0ms);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .enter,
+  .enter-fade {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}
+
+/* Vertical marquee. Consumers duplicate content; -50% lands the duplicate
+ * on the original's starting position so the loop is seamless. */
+@keyframes marquee-up {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(-50%);
+  }
+}
+
+@keyframes marquee-down {
+  from {
+    transform: translateY(-50%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}

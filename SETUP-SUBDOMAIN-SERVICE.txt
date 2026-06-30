@@ -1,0 +1,461 @@
+================================================================
+Voidbunny subdomain service — architecture + setup
+================================================================
+
+This document is the single source of truth for the
+*.box.voidbunny.xyz free subdomain feature. If you're an agent
+picking this up mid-build, read this first.
+
+Goal: anyone who installs Voidbunny on a fresh box can claim a
+free subdomain like  swift-otter-4f3.box.voidbunny.xyz  pointed
+at their server, Vercel/Railway-style — without us hosting any
+of their content (we only run DNS).
+
+----------------------------------------------------------------
+0) Status (as of 2026-05-16)
+----------------------------------------------------------------
+
+Architecture: ✅ finalized (this doc)
+Memory:       ✅ project_subdomain_service.md updated
+Code:         🟡 in progress — see "Build status" section below
+Neon DB:      ✅ provisioned + migrated 2026-05-17
+              Project: <redacted>
+              Default DB: neondb, default branch: main
+              Better Auth: enabled
+              Migration 0001: applied
+External:     ⏳ Cloudflare DNS migration still pending
+                 + GitHub OAuth app registration
+
+DONE 2026-05-17:
+  ✅ Neon project provisioned + connected to Vercel
+     - Project ID: <redacted>
+     - Org ID:     <redacted>
+     - Database:   neondb
+     - Branch:     <redacted>
+  ✅ Better Auth enabled in Neon Auth (not legacy Stack Auth)
+     - neon_auth.user (singular!) has UUID id w/ gen_random_uuid
+     - Built-in: banned, banReason, banExpires columns
+  ✅ Migration 0001 applied to main (after branch test)
+     - public.user_profiles, subdomains, claim_codes,
+       referrals, audit_log
+     - recompute_user_quota() function
+  ✅ Vercel auto-injects DATABASE_URL into production envs
+
+STILL BLOCKED ON HAMID:
+  1. Cloudflare DNS migration: voidbunny.xyz nameservers
+     Vercel → Cloudflare. Then creates box.voidbunny.xyz
+     delegation + zone-scoped API token (DNS:Edit only).
+     Sends CLOUDFLARE_API_TOKEN + CLOUDFLARE_ZONE_ID.
+  2. GitHub OAuth app at github.com/settings/developers
+     (Client ID + Secret pasted into Neon dashboard, NOT into
+     our env vars — Neon Auth handles the OAuth flow).
+
+Everything else can be built without those.
+
+----------------------------------------------------------------
+1) The pitch — what users see
+----------------------------------------------------------------
+
+  1. Sign up at voidbunny.xyz (GitHub OAuth or magic-link email)
+  2. /dashboard → click "Claim subdomain"
+  3. Dashboard shows a one-time install command:
+       curl -fsSL voidbunny.xyz/install.sh | bash -s -- vbc_xxxx
+  4. Run it on a fresh Ubuntu box
+  5. Installer finishes, prints: "✓ Live at
+     https://swift-otter-4f3.box.voidbunny.xyz"
+
+Every claim is tied to a real authenticated account. No
+anonymous claims, ever. (Ingeniiious's red line.)
+
+----------------------------------------------------------------
+2) Auth model — locked
+----------------------------------------------------------------
+
+Voidbunny does NOT run its own auth. libraryyy.com (the
+"libraryyy-idp" Next.js app at /opt/libraryyy-idp) is the
+identity provider. libraryyy.com already has:
+  - Email/password sign-up
+  - OTP verification via AutoSend transactional email
+  - Neon Auth (Better Auth) on its own Neon project
+  - User pool we want to grow for marketing
+
+Auth flow is a shared-secret JWT bridge between the two apps.
+
+  ┌────────────────────────────────────────────────────────────┐
+  │ User on voidbunny.xyz                                      │
+  │   clicks "Claim subdomain" / "Sign in"                     │
+  │     → 302 https://libraryyy.com/voidbunny/authorize        │
+  │            ?return=https://voidbunny.xyz/auth/callback     │
+  │            &state=<random nonce stored in cookie>          │
+  └────────────────────────────────────────────────────────────┘
+                              ↓
+  ┌────────────────────────────────────────────────────────────┐
+  │ libraryyy.com /voidbunny/authorize                         │
+  │   - if not signed in: redirect to /sign-in?return=this     │
+  │   - if signed in:                                          │
+  │       JWT = HS256.sign(VOIDBUNNY_LINK_SECRET, {            │
+  │         sub:    <neon_auth user id>,                       │
+  │         email:  <user email>,                              │
+  │         name:   <user name>,                               │
+  │         iat:    <now>,                                     │
+  │         exp:    <now + 300s>,                              │
+  │       })                                                   │
+  │     302 <return>?token=<JWT>&state=<nonce>                 │
+  └────────────────────────────────────────────────────────────┘
+                              ↓
+  ┌────────────────────────────────────────────────────────────┐
+  │ voidbunny.xyz /auth/callback                               │
+  │   - verify HS256 signature (VOIDBUNNY_LINK_SECRET)         │
+  │   - verify exp not past, state matches cookie              │
+  │   - upsert user_profiles by libraryyy_user_id = JWT.sub    │
+  │   - set signed session cookie vb_session                   │
+  │     (HS256 with VOIDBUNNY_SESSION_SECRET, 30-day sliding)  │
+  │   - 302 /dashboard                                         │
+  └────────────────────────────────────────────────────────────┘
+
+Tier-1 verification (GitHub) lives on the voidbunny side as
+a SECONDARY account-link: a "Connect GitHub" button on the
+dashboard runs GitHub OAuth, stores github_id on the
+user_profile, bumps tier to 1. libraryyy doesn't need GitHub
+OAuth at all.
+
+The neon_auth.* schema in the voidbunny Neon project is now
+UNUSED. It's there from initial provisioning; we ignore it.
+Kept around as a fallback option, but nothing references it.
+
+Tier system:
+  Tier 0 (Unverified)
+    - Signed up via magic-link only, no GitHub connected
+    - Quota: 1 subdomain
+    - Cannot earn referral bonuses (their invites don't grant
+      bonuses to the inviter when accepted)
+  Tier 1 (Verified)
+    - Has connected GitHub account, account age ≥ 30 days,
+      ≥ 1 public repo or contribution
+    - Quota: 2 subdomains base
+    - Can earn referral bonuses (+1 per referred Tier-1 user)
+    - Hard ceiling: 6 subdomains/user (2 base + 4 referrals)
+
+Why GitHub-only for Tier 1 (and not phone):
+  - Twilio Verify adds ~$0.05/user + a whole second vendor
+  - Phone OSINT (megadose/ignorant) is unreliable + ToS-hostile
+  - GitHub gives queryable identity (age, repos, contributions)
+    and is free
+  - Voidbunny's audience is devs — they all have GitHub
+
+----------------------------------------------------------------
+3) Domain & DNS
+----------------------------------------------------------------
+
+Registrar: Vercel (where Ingeniiious bought voidbunny.xyz). Stays
+           there. No domain transfer.
+DNS host:  Cloudflare. Free plan. Nameservers switched at
+           Vercel → Cloudflare's pair.
+
+User subdomains live on a delegated subzone:
+   *.box.voidbunny.xyz
+NOT on the apex. Keeps voidbunny.xyz reputation clean if a user
+subdomain ever gets blocklisted by Google Safe Browsing etc.
+
+All user records are DNS-only (gray cloud), NEVER proxied. Users
+issue their own Let's Encrypt cert via Caddy HTTP-01 on the box.
+
+Cloudflare API token must be:
+  - Scoped to zone voidbunny.xyz only
+  - Permission: Zone → DNS → Edit only
+  - (Optional) IP-restricted to the site server's egress IP
+
+Update needed in site copy after launch:
+  - showcase.tsx:56-59  "name.voidbunny.xyz" → "name.box.voidbunny.xyz"
+  - faq.tsx:98-100      same
+  - page.tsx:283        same
+  - community.tsx:35    "Cloudflare DNS" stays correct
+
+----------------------------------------------------------------
+4) Random slug generator — locked
+----------------------------------------------------------------
+
+Format:   <adjective>-<noun>-<3char base36>
+Example:  swift-otter-4f3
+
+Wordlists in site/lib/subdomain/words.ts:
+  - ~200 adjectives, curated (no edgy, no brand-adjacent)
+  - ~200 nouns (animals only, friendly)
+
+Math: 200 × 200 × 46656 ≈ 1.87B combinations. Collision rate
+stays under 0.1% until ~40k active subdomains. On collision,
+retry — but if 3 retries in a row collide, log it (means we're
+near saturation).
+
+No user-chosen names in v1. Custom names = future work, behind
+heavier verification.
+
+----------------------------------------------------------------
+5) Provisioning flow — end to end
+----------------------------------------------------------------
+
+  ┌─────────────────────────────────────────────────────────────┐
+  │ User in browser                                             │
+  │   /dashboard/claim → POST /api/subdomain/code               │
+  │     ← { code: "vbc_a4f9...", expires_in: 600 }              │
+  │   Dashboard displays install command with code              │
+  └─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+  ┌─────────────────────────────────────────────────────────────┐
+  │ User on their box                                           │
+  │   curl voidbunny.xyz/install.sh | bash -s -- vbc_a4f9...    │
+  │     installer:                                              │
+  │       - installs deps                                       │
+  │       - generates local verify-token                        │
+  │       - writes /etc/voidbunny/claim-token                   │
+  │       - starts Voidbunny + Caddy                            │
+  │       - POST /api/subdomain/claim                           │
+  │         body: { code, ip, verify_token }                    │
+  └─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+  ┌─────────────────────────────────────────────────────────────┐
+  │ Site backend (Next.js API route)                            │
+  │   1. Resolve code → user_id, mark consumed                  │
+  │   2. Check user.quota_used < user.quota_total               │
+  │   3. Proof-of-Voidbunny:                                    │
+  │        GET http://<ip>:80/api/voidbunny/claim-verify        │
+  │        Expect: { token: <matches verify_token> }            │
+  │   4. Generate slug (retry on collision)                     │
+  │   5. Cloudflare API: POST DNS record A <slug>.box → ip      │
+  │   6. INSERT INTO subdomains                                 │
+  │   7. ← { fqdn, manage_token }                               │
+  └─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+  ┌─────────────────────────────────────────────────────────────┐
+  │ Installer (continued)                                       │
+  │   - Bake fqdn into /etc/caddy/Caddyfile                     │
+  │   - Reload caddy                                            │
+  │   - Store manage_token at /etc/voidbunny/subdomain.json     │
+  │   - Print success                                           │
+  └─────────────────────────────────────────────────────────────┘
+
+----------------------------------------------------------------
+6) Database — Neon Postgres
+----------------------------------------------------------------
+
+Free tier: 0.5 GB storage, 191 compute-hours/month. Plenty for
+the foreseeable horizon (queries are sparse — one per signup,
+one per claim, one per heartbeat per box per day).
+
+Branching: use Neon branches for testing migrations on a clone
+of prod before applying.
+
+Ingeniiious provisions the project himself; he hands off the pooled
+connection string as DATABASE_URL.
+
+Schema lives in: site/migrations/0001_subdomain_service.sql
+
+Two schemas in play:
+
+  neon_auth.* — Neon Auth manages this. Don't touch.
+                Contains: users, sessions, accounts,
+                verification_tokens (Better Auth's tables).
+
+  public.*    — Our migration creates these:
+    - user_profiles — id UUID PK (= neon_auth.users.id),
+                       github_id, github_username, tier,
+                       subdomain_quota, status, referral_code,
+                       referred_by, created_at
+    - subdomains    — fqdn (PK), slug, profile_id, ip,
+                       cf_record_id, manage_token_hash,
+                       created_at, last_heartbeat, status
+    - claim_codes   — code_hash (PK), profile_id, created_at,
+                       consumed_at, expires_at, verify_token
+    - referrals     — id, referrer_id, referred_id, created_at,
+                       bonus_granted_at
+    - audit_log     — id, ts, actor_id, action, target, ip,
+                       user_agent, payload (jsonb)
+
+profile_id in our tables = neon_auth.users.id (by value,
+no enforced FK to neon_auth schema since Neon may rewrite it).
+
+Profile rows are created in a server-side post-signup hook —
+when Neon Auth callback returns a new user, we INSERT a
+user_profiles row with default tier=0, quota=1.
+
+All secrets (manage_token, claim_code) are bcrypt-hashed at rest.
+
+----------------------------------------------------------------
+7) Abuse-defense stack
+----------------------------------------------------------------
+
+Primary gates:
+  - Auth required to claim (no anonymous)
+  - Per-user quota (1 unverified, 2+refs for verified, cap 6)
+  - GitHub account age check (< 30d → manual review queue)
+  - Proof-of-Voidbunny: the box must run Voidbunny's actual
+    /api/voidbunny/claim-verify endpoint with matching token.
+    A generic webserver can't satisfy it.
+
+Operational defenses:
+  - Daily heartbeat from user's Caddy → /api/subdomain/heartbeat;
+    14 days quiet → reap the DNS record
+  - Weekly Safe Browsing / URLhaus / PhishTank scan of all
+    active *.box.voidbunny.xyz hosts (cron job)
+  - No wildcard records, no DNS-01 ACME (eliminates wildcard
+    cert abuse in our zone)
+  - Public /abuse form for takedown reports
+  - Rate limit: 3 claim-code generations per user per day
+  - Admin CLI (scripts/subdomain-admin.js): ban user, ban
+    subdomain, ban IP, refund quota, list flagged
+  - 90-day audit log (audit_log table)
+
+Random slugs eliminate (for free):
+  - Reserved-name blocklist (can't pick "admin")
+  - Homoglyph/punycode squat check (can't pick "paypa1")
+  - Brand impersonation (can't pick "apple-login")
+
+----------------------------------------------------------------
+8) Referral program — abuse-resistant
+----------------------------------------------------------------
+
+  - Only Tier 1 users can earn bonuses (Tier 0 invites
+    don't grant bonus to inviter)
+  - Bonus grants only when ALL of:
+      a) Referred user reaches Tier 1 (connects GitHub)
+      b) Referred user claims their subdomain
+      c) Subdomain passes heartbeat for 7 consecutive days
+  - Referrer + referred must be on different /24 (signup IP)
+  - Different email domain required
+  - Cap: max 4 bonuses per referrer → 6 subdomains total
+  - Manual review queue triggers if 3+ referrals in 24h
+
+Invite URL: voidbunny.xyz/r/<referral_code>
+  - When opened, sets a 30-day cookie with referrer's user_id
+  - On signup, written into users.referred_by
+
+----------------------------------------------------------------
+9) Required env vars on the site server
+----------------------------------------------------------------
+
+VOIDBUNNY site:
+  DATABASE_URL                Neon pooled (auto-injected by Vercel)
+  VOIDBUNNY_LINK_SECRET       32-byte hex, SHARED with libraryyy-idp
+  VOIDBUNNY_SESSION_SECRET    32-byte hex, voidbunny-only
+                              (signs the vb_session cookie)
+  LIBRARYYY_AUTHORIZE_URL     https://libraryyy.com/voidbunny/authorize
+  GITHUB_CLIENT_ID            For Tier-1 secondary link only
+  GITHUB_CLIENT_SECRET
+  CLOUDFLARE_API_TOKEN        Zone-scoped DNS:Edit on voidbunny.xyz
+  CLOUDFLARE_ZONE_ID          Found in CF dashboard sidebar
+  SUBDOMAIN_BASE              box.voidbunny.xyz
+
+HAMID-LIB / libraryyy.com:
+  VOIDBUNNY_LINK_SECRET       SAME value as the voidbunny one
+  VOIDBUNNY_CALLBACK_ORIGIN   https://voidbunny.xyz
+                              (only valid return host — reject others)
+
+Generate the shared secret once:
+  openssl rand -hex 32
+Put it in both Vercel projects' env vars (voidbunny + libraryyy-idp).
+
+----------------------------------------------------------------
+10) Files this feature touches (source-of-truth map)
+----------------------------------------------------------------
+
+NEW in /opt/voidbunny (voidbunny site):
+  site/migrations/0001_subdomain_service.sql        ✅ applied
+  site/migrations/0002_libraryyy_idp.sql            ✅ applied
+  site/lib/db.ts                    — Postgres client (postgres-js)
+  site/lib/auth/jwt-bridge.ts       — HS256 sign/verify
+  site/lib/auth/session.ts          — vb_session signed cookie
+  site/lib/auth/profile.ts          — upsertProfile() by libraryyy_user_id
+  site/lib/subdomain/slug.ts        ✅
+  site/lib/subdomain/words.ts       ✅
+  site/lib/subdomain/claim-code.ts  ✅
+  site/lib/cloudflare/dns.ts        ✅
+  site/app/auth/sign-in/route.ts    — 302 to libraryyy/voidbunny/authorize
+  site/app/auth/callback/route.ts   — verify JWT, set session, redirect
+  site/app/auth/sign-out/route.ts   — clear session, redirect home
+  site/app/api/github/connect/route.ts        — secondary Tier-1 link (start)
+  site/app/api/github/callback/route.ts       — secondary Tier-1 link (end)
+  site/app/api/subdomain/code/route.ts        — issue claim code
+  site/app/api/subdomain/claim/route.ts       — installer hits this
+  site/app/api/subdomain/heartbeat/route.ts
+  site/app/api/subdomain/release/route.ts
+  site/app/dashboard/layout.tsx
+  site/app/dashboard/page.tsx
+  site/app/dashboard/claim/page.tsx
+  site/app/dashboard/referrals/page.tsx
+  site/app/dashboard/settings/page.tsx
+  site/app/r/[code]/route.ts                  — referral landing
+  site/app/abuse/page.tsx
+  site/middleware.ts                          — protect /dashboard via vb_session
+  scripts/subdomain-admin.js
+  scripts/subdomain-reaper.js                 — cron: heartbeat reap
+  scripts/subdomain-scan.js                   — cron: SafeBrowsing
+
+NEW in /opt/libraryyy-idp (libraryyy.com):
+  app/voidbunny/authorize/route.ts            — issue bridge JWT
+  components/voidbunny-link-button.tsx        — "Claim Voidbunny Subdomain" CTA
+  (mount this button on libraryyy's /dashboard for verified users)
+
+EDITED:
+  backend/index.js                   — add /api/voidbunny/claim-verify
+  install.sh                         — accept vbc_* code arg
+  site/components/showcase.tsx       — copy update
+  site/components/faq.tsx            — copy update
+  site/app/page.tsx                  — copy update
+
+----------------------------------------------------------------
+11) Build status checklist
+----------------------------------------------------------------
+
+  [x] Memory + this doc
+  [x] Schema migration 0001 (initial)
+  [x] Schema migration 0002 (libraryyy_user_id)
+  [x] Schema migration 0003 (email/name/last_login_at cache)
+  [x] Slug generator + wordlists
+  [x] Claim-code utilities (hash, verify, TTL)
+  [x] Cloudflare DNS client wrapper
+  [x] Proof-of-Voidbunny endpoint in backend/
+  [x] Neon project provisioned
+  [x] JWT bridge (voidbunny side) — sign-in, callback, session,
+        profile upsert
+  [x] JWT bridge (libraryyy-idp side) — /voidbunny/authorize route
+        + lib/voidbunny/jwt signer
+  [x] VOIDBUNNY_LINK_SECRET generated + set in both Vercel projects
+  [x] Dashboard shell (shadcn sidebar) + 4 routes:
+        /dashboard (overview), /dashboard/claim,
+        /dashboard/referrals, /dashboard/settings
+  [x] /api/subdomain/code — issues vbc_* one-time codes
+  [ ] GitHub OAuth (secondary, for Tier-1 link only)
+        — placeholder linked at /api/github/connect from
+          settings page; route doesn't exist yet
+  [ ] /api/subdomain/claim — installer hits this with the code
+        (calls Cloudflare to create A record)
+  [ ] /api/subdomain/heartbeat
+  [ ] /api/subdomain/release
+  [ ] install.sh changes (accept vbc_* arg, write claim.json)
+  [ ] Heartbeat reaper + Safe Browsing scanner (cron)
+  [ ] Referral system (cookie on /r/<code>, bonus grant logic)
+  [ ] /abuse form + admin CLI
+  [ ] Cloudflare DNS migration (Ingeniiious)
+  [ ] Site copy updates (name.box.voidbunny.xyz)
+  [ ] Launch
+
+----------------------------------------------------------------
+12) Ingeniiious's red lines (do not violate)
+----------------------------------------------------------------
+
+  - No anonymous claims, ever
+  - All signups flow through libraryyy.com — this is the
+    marketing strategy (grow libraryyy's user count) and
+    saves voidbunny from running its own SMTP
+  - DNS-only, never proxied through CF
+  - Tier-1 verification (GitHub connect on voidbunny) required
+    for quota > 1
+  - Random slugs only in v1 (no user-chosen names)
+  - No phone verification
+  - No third-party OSINT scrapers (megadose/holehe/ignorant)
+  - No own SMTP on voidbunny.xyz
+  - Voidbunny's Neon Auth instance is provisioned but UNUSED
+    (kept as fallback option)

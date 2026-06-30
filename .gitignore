@@ -1,0 +1,23 @@
+node_modules/
+dist/
+build/
+.env
+.env.local
+# Ignore everything inside backend/data/ except the shipped curated JSON.
+# Pattern note: ignoring `backend/data/` (dir) blocks re-inclusion; using
+# `backend/data/*` allows a `!…/cliHelpCurated.json` exception below.
+backend/data/*
+!backend/data/cliHelpCurated.json
+*.log
+npm-debug.log*
+.DS_Store
+.vscode/
+.idea/
+
+# TypeScript build artifacts
+*.tsbuildinfo
+frontend/vite.config.d.ts
+frontend/vite.config.js
+
+# Marketing-site template archive — extracted into site/, no need to commit
+wireframe.zip

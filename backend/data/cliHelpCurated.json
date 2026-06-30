@@ -1,0 +1,89 @@
+{
+  "claude": {
+    "display_name": "Claude Code",
+    "homepage": "https://docs.claude.com/en/docs/claude-code",
+    "slash_commands": [
+      { "name": "/help", "summary": "Show available slash commands and shortcuts" },
+      { "name": "/clear", "summary": "Start a fresh conversation, clearing context" },
+      { "name": "/compact", "summary": "Summarise the conversation to free up context" },
+      { "name": "/model", "summary": "Switch the model used for this session" },
+      { "name": "/config", "summary": "Open the settings UI for theme, model, hooks, etc." },
+      { "name": "/voice", "summary": "Toggle voice input/output (needs sox + local mic)" },
+      { "name": "/cost", "summary": "Show token usage and approximate cost for this session" },
+      { "name": "/login", "summary": "Sign in with your Anthropic account (subscription OAuth)" },
+      { "name": "/logout", "summary": "Sign out of the current Anthropic account" },
+      { "name": "/init", "summary": "Initialise a CLAUDE.md with codebase documentation" },
+      { "name": "/review", "summary": "Review a pull request or current branch" },
+      { "name": "/memory", "summary": "Open the memory file in your editor" },
+      { "name": "/permissions", "summary": "Edit project permissions (allowed Bash/MCP tools)" },
+      { "name": "/mcp", "summary": "Manage MCP servers connected to this session" },
+      { "name": "/agents", "summary": "List or open subagent definitions" },
+      { "name": "/hooks", "summary": "Configure hooks that fire on Claude Code events" },
+      { "name": "/resume", "summary": "Resume a previous session in this directory" },
+      { "name": "/fast", "summary": "Toggle fast mode (Opus with faster output)" },
+      { "name": "/loop", "summary": "Run a prompt or slash command on a recurring interval" },
+      { "name": "/ultrareview", "summary": "Launch a multi-agent cloud review of the current branch" },
+      { "name": "/bug", "summary": "Report a bug to Anthropic with session context" },
+      { "name": "/quit", "summary": "Exit the Claude Code session" }
+    ],
+    "overrides": {
+      "--model": { "description": "Override the default Claude model for this run (e.g. claude-opus-4-7, claude-sonnet-4-6, claude-haiku-4-5)." },
+      "--print": { "description": "Print the response and exit instead of starting an interactive session." },
+      "--resume": { "description": "Resume a previous session by ID, or pick from a list when given no ID." }
+    }
+  },
+  "codex": {
+    "display_name": "Codex CLI",
+    "homepage": "https://github.com/openai/codex",
+    "slash_commands": [
+      { "name": "/help", "summary": "Show available slash commands" },
+      { "name": "/clear", "summary": "Start a fresh conversation" },
+      { "name": "/model", "summary": "Switch the OpenAI model for this session" },
+      { "name": "/login", "summary": "Sign in with your OpenAI account" },
+      { "name": "/logout", "summary": "Sign out of OpenAI" },
+      { "name": "/diff", "summary": "Show the diff of uncommitted changes" },
+      { "name": "/undo", "summary": "Undo the last change Codex made" },
+      { "name": "/quit", "summary": "Exit the Codex session" }
+    ],
+    "overrides": {}
+  },
+  "gemini": {
+    "display_name": "Gemini CLI",
+    "homepage": "https://github.com/google-gemini/gemini-cli",
+    "slash_commands": [
+      { "name": "/help", "summary": "Show available slash commands" },
+      { "name": "/clear", "summary": "Clear the current conversation" },
+      { "name": "/model", "summary": "Switch Gemini model for this session" },
+      { "name": "/auth", "summary": "Manage Google authentication" },
+      { "name": "/tools", "summary": "List or toggle available tools" },
+      { "name": "/memory", "summary": "View or edit Gemini's persistent memory" },
+      { "name": "/chat", "summary": "Save, resume, or list past chats" },
+      { "name": "/theme", "summary": "Change the terminal theme" },
+      { "name": "/quit", "summary": "Exit the Gemini session" }
+    ],
+    "overrides": {}
+  },
+  "grok": {
+    "display_name": "Grok CLI",
+    "homepage": "https://github.com/superagent-ai/grok-cli",
+    "slash_commands": [
+      { "name": "/help", "summary": "Show available slash commands" },
+      { "name": "/clear", "summary": "Start a fresh conversation" },
+      { "name": "/model", "summary": "Switch xAI Grok model" },
+      { "name": "/quit", "summary": "Exit the Grok session" }
+    ],
+    "overrides": {}
+  },
+  "cursor": {
+    "display_name": "Cursor Agent",
+    "homepage": "https://docs.cursor.com/cli",
+    "slash_commands": [
+      { "name": "/help", "summary": "Show available slash commands" },
+      { "name": "/clear", "summary": "Start a fresh conversation" },
+      { "name": "/model", "summary": "Switch the model Cursor uses" },
+      { "name": "/login", "summary": "Sign in with your Cursor account" },
+      { "name": "/quit", "summary": "Exit the Cursor Agent session" }
+    ],
+    "overrides": {}
+  }
+}
